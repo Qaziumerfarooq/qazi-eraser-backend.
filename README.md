@@ -4,9 +4,8 @@ emoji: 🪄
 colorFrom: green
 colorTo: blue
 sdk: docker
-pinned: false
+app_port: 7860
 ---
 
 # Qazi Eraser Backend
-This is the backend server for the Qazi Object Eraser mobile app.
-It runs a Lama Inpainting model on ONNX Runtime.
+Running on Port 7860
