@@ -1,6 +1,4 @@
-gradio
-fastapi
-uvicorn
+flask
 numpy
 onnxruntime
 Pillow
