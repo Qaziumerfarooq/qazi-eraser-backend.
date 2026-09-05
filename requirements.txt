@@ -1,3 +1,4 @@
+streamlit
 numpy
-onnxruntime-cpu
+onnxruntime
 Pillow
