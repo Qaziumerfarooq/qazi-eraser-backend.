@@ -1,59 +1,53 @@
 import gradio as gr
 import base64
 import io
-import json
 import numpy as np
 import onnxruntime as ort
 from PIL import Image
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-import uvicorn
 
-# Load Model
+# Load the AI model
 MODEL_PATH = "model.onnx"
 _SESSION = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
 
-def _inpaint(image, mask):
-    src_w, src_h = image.size
-    img_rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
-    image_bgr = img_rgb[:, :, ::-1]
-    image_pre = np.asarray(Image.fromarray(image_bgr).resize((512, 512), Image.LANCZOS), dtype=np.float32) / 255.0
-    image_blob = np.transpose(image_pre, (2, 0, 1))[None].astype(np.float32)
-    mask_r = np.asarray(mask.convert("L"), dtype=np.uint8)
-    mask_resized = np.asarray(Image.fromarray(mask_r).resize((512, 512), Image.NEAREST), dtype=np.float32)
-    mask_blob = (mask_resized > 0)[None, None].astype(np.float32)
-    out = _SESSION.run(["output"], {"image": image_blob, "mask": mask_blob})[0][0]
-    out = np.transpose(out, (1, 2, 0))
-    out_u8 = np.clip(out, 0, 255).astype(np.uint8)
-    result_rgb = out_u8[:, :, ::-1]
-    return Image.fromarray(result_rgb, "RGB").resize((src_w, src_h), Image.LANCZOS)
-
-# Create FastAPI app
-app = FastAPI()
-
-@app.post("/erase")
-async def erase(request: Request):
+def process_erase(image_b64, mask_b64):
     try:
-        body = await request.json()
-        image = Image.open(io.BytesIO(base64.b64decode(body["image_b64"])))
-        mask = Image.open(io.BytesIO(base64.b64decode(body["mask_b64"])))
-        res = _inpaint(image, mask)
+        # 1. Decode inputs
+        img_data = Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
+        mask_data = Image.open(io.BytesIO(base64.b64decode(mask_b64))).convert("L")
+
+        src_w, src_h = img_data.size
+
+        # 2. Preprocess
+        img_np = np.asarray(img_data.resize((512, 512), Image.LANCZOS), dtype=np.float32) / 255.0
+        img_bgr = img_np[:, :, ::-1] # BGR for model
+        img_blob = np.transpose(img_bgr, (2, 0, 1))[None].astype(np.float32)
+
+        mask_np = np.asarray(mask_data.resize((512, 512), Image.NEAREST), dtype=np.float32)
+        mask_blob = (mask_np > 0)[None, None].astype(np.float32)
+
+        # 3. Run AI
+        out = _SESSION.run(["output"], {"image": img_blob, "mask": mask_blob})[0][0]
+
+        # 4. Postprocess
+        out = np.transpose(out, (1, 2, 0))
+        out_u8 = np.clip(out, 0, 255).astype(np.uint8)
+        res_rgb = out_u8[:, :, ::-1] # BGR -> RGB
+        res_img = Image.fromarray(res_rgb).resize((src_w, src_h), Image.LANCZOS)
+
+        # 5. Encode result
         buf = io.BytesIO()
-        res.save(buf, format="JPEG", quality=85)
-        return {"result_b64": base64.b64encode(buf.getvalue()).decode("ascii")}
+        res_img.save(buf, format="JPEG", quality=85)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return f"Error: {str(e)}"
 
-@app.get("/health")
-async def health():
-    return "ok"
-
-# Gradio dummy UI for Hugging Face compatibility
-with gr.Blocks() as demo:
-    gr.Markdown("# Qazi Eraser API is Running")
-
-# Mount FastAPI onto Gradio
-app = gr.mount_gradio_app(app, demo, path="/")
+# Define a simple Gradio Interface for the API
+demo = gr.Interface(
+    fn=process_erase,
+    inputs=[gr.Textbox(label="image_b64"), gr.Textbox(label="mask_b64")],
+    outputs=gr.Textbox(label="result_b64"),
+    title="Qazi Eraser API"
+)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    demo.launch()
