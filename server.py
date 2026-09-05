@@ -14,8 +14,8 @@ from PIL import Image
 MODEL_PATH = "model.onnx"
 SIZE = 512
 HOST = "0.0.0.0"
-# Render provides the port via environment variable
-PORT = int(os.environ.get("PORT", 8317))
+# Hugging Face default port is 7860
+PORT = int(os.environ.get("PORT", 7860))
 
 print("[server] Loading model...", flush=True)
 t0 = time.time()
