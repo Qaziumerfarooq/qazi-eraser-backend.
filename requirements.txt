@@ -1,4 +1,6 @@
-streamlit
+gradio
+fastapi
+uvicorn
 numpy
 onnxruntime
 Pillow

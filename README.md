@@ -1,10 +1,11 @@
 ---
-title: Qazi Eraser
+title: Qazi Eraser API
 emoji: 🪄
 colorFrom: green
 colorTo: blue
-sdk: docker
+sdk: gradio
+app_file: app.py
+pinned: false
 ---
 
-# Qazi Eraser
-Backend for Object Eraser
+# Qazi Eraser Backend (Gradio + FastAPI)

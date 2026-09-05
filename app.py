@@ -5,22 +5,22 @@ import json
 import numpy as np
 import onnxruntime as ort
 from PIL import Image
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+import uvicorn
 
+# Load Model
 MODEL_PATH = "model.onnx"
-SIZE = 512
-
-SO = ort.SessionOptions()
-SO.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-_SESSION = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"], sess_options=SO)
+_SESSION = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
 
 def _inpaint(image, mask):
     src_w, src_h = image.size
     img_rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
     image_bgr = img_rgb[:, :, ::-1]
-    image_pre = np.asarray(Image.fromarray(image_bgr).resize((SIZE, SIZE), Image.LANCZOS), dtype=np.float32) / 255.0
+    image_pre = np.asarray(Image.fromarray(image_bgr).resize((512, 512), Image.LANCZOS), dtype=np.float32) / 255.0
     image_blob = np.transpose(image_pre, (2, 0, 1))[None].astype(np.float32)
     mask_r = np.asarray(mask.convert("L"), dtype=np.uint8)
-    mask_resized = np.asarray(Image.fromarray(mask_r).resize((SIZE, SIZE), Image.NEAREST), dtype=np.float32)
+    mask_resized = np.asarray(Image.fromarray(mask_r).resize((512, 512), Image.NEAREST), dtype=np.float32)
     mask_blob = (mask_resized > 0)[None, None].astype(np.float32)
     out = _SESSION.run(["output"], {"image": image_blob, "mask": mask_blob})[0][0]
     out = np.transpose(out, (1, 2, 0))
@@ -28,23 +28,32 @@ def _inpaint(image, mask):
     result_rgb = out_u8[:, :, ::-1]
     return Image.fromarray(result_rgb, "RGB").resize((src_w, src_h), Image.LANCZOS)
 
-def api_erase(image_b64, mask_b64):
+# Create FastAPI app
+app = FastAPI()
+
+@app.post("/erase")
+async def erase(request: Request):
     try:
-        image = Image.open(io.BytesIO(base64.b64decode(image_b64)))
-        mask = Image.open(io.BytesIO(base64.b64decode(mask_b64)))
+        body = await request.json()
+        image = Image.open(io.BytesIO(base64.b64decode(body["image_b64"])))
+        mask = Image.open(io.BytesIO(base64.b64decode(body["mask_b64"])))
         res = _inpaint(image, mask)
-        out_buf = io.BytesIO()
-        res.save(out_buf, format="JPEG", quality=90)
-        return json.dumps({"result_b64": base64.b64encode(out_buf.getvalue()).decode("ascii")})
+        buf = io.BytesIO()
+        res.save(buf, format="JPEG", quality=85)
+        return {"result_b64": base64.b64encode(buf.getvalue()).decode("ascii")}
     except Exception as e:
-        return json.dumps({"error": str(e)})
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
-# Mobile app will use this direct endpoint
+@app.get("/health")
+async def health():
+    return "ok"
+
+# Gradio dummy UI for Hugging Face compatibility
 with gr.Blocks() as demo:
-    input_img = gr.Textbox(visible=False)
-    input_mask = gr.Textbox(visible=False)
-    output = gr.Textbox()
-    btn = gr.Button("Erase", visible=False)
-    btn.click(fn=api_erase, inputs=[input_img, input_mask], outputs=output)
+    gr.Markdown("# Qazi Eraser API is Running")
 
-demo.launch()
+# Mount FastAPI onto Gradio
+app = gr.mount_gradio_app(app, demo, path="/")
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=7860)
